@@ -326,11 +326,26 @@ bool LLModel::Implementation::isEmbeddingModel(const std::string &modelPath)
     return llama && llama->isEmbeddingModel(modelPath);
 }
 
+#if _MSVC_LANG > 202110L
 auto LLModel::Implementation::chatTemplate(const char *modelPath) -> std::expected<std::string, std::string>
 {
     auto *llama = constructGlobalLlama();
     return llama ? llama->chatTemplate(modelPath) : std::unexpected("backend not available");
 }
+#else
+auto LLModel::Implementation::chatTemplate(const char* modelPath) -> std::pair<bool,std::string>
+{
+    auto* llama = constructGlobalLlama();
+    if (llama)
+    {
+        return { true, modelPath }; 
+    }
+    else
+    {
+        return { false, "backend not available" }; // 错误时返回
+    }
+}
+#endif
 
 void LLModel::Implementation::setImplementationsSearchPath(const std::string& path)
 {

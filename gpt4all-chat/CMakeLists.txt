@@ -81,7 +81,7 @@ function(check_cpp_feature FEATURE_NAME MIN_VALUE)
 endfunction()
 
 # check for monadic operations in std::optional (e.g. transform)
-check_cpp_feature("__cpp_lib_optional" "202110L")
+# check_cpp_feature("__cpp_lib_optional" "202110L")
 
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/Modules")

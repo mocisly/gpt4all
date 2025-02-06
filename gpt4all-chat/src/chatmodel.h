@@ -572,6 +572,7 @@ private:
     }
 
 public:
+#if _MSVC_LANG > 202110L
     template <ranges::contiguous_range R>
     static auto getPeer(R &&range, ranges::iterator_t<R> item) -> std::optional<ranges::iterator_t<R>>
     {
@@ -579,6 +580,28 @@ public:
         return getPeer(ranges::data(range), ranges::size(range), item - begin)
             .transform([&](auto i) { return begin + i; });
     }
+#else
+    template <ranges::contiguous_range R>
+    static auto getPeer(R&& range, ranges::iterator_t<R> item) -> std::optional<ranges::iterator_t<R>>
+    {
+        auto begin = ranges::begin(range);
+        auto size = ranges::size(range);
+
+        auto index = std::distance(begin, item);
+        if (index < 0 || index >= size) {
+            return std::nullopt; // 索引超出范围
+        }
+
+        // 手动实现 transform 的功能
+        auto result = getPeer(ranges::data(range), size, index);
+        if (result) {
+            return begin + *result; // 将结果转换回迭代器
+        }
+        else {
+            return std::nullopt;
+        }
+    }
+#endif
 
     auto getPeerUnlocked(QList<ChatItem *>::const_iterator item) const -> std::optional<QList<ChatItem *>::const_iterator>
     { return getPeer(m_chatItems, item); }

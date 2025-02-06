@@ -15,7 +15,6 @@
 namespace views  = std::views;
 using json = nlohmann::ordered_json;
 
-
 json::object_t JinjaResultInfo::AsJson() const
 {
     return {
@@ -40,6 +39,7 @@ json::object_t JinjaPromptAttachment::AsJson() const
     };
 }
 
+#if _MSVC_LANG > 202110L
 json::object_t JinjaMessage::AsJson() const
 {
     json::object_t obj;
@@ -79,3 +79,47 @@ json::object_t JinjaMessage::AsJson() const
     }
     return obj;
 }
+#else
+json::object_t JinjaMessage::AsJson() const
+{
+    json::object_t obj;
+    {
+        json::string_t role;
+        switch (m_item->type()) {
+            using enum MessageItem::Type;
+        case System:       role = "system";    break;
+        case Prompt:       role = "user";      break;
+        case Response:     role = "assistant"; break;
+        case ToolResponse: role = "tool";      break;
+        }
+        obj.emplace("role", std::move(role));
+    }
+    {
+        QString content;
+        if (m_version == 0 && m_item->type() == MessageItem::Type::Prompt) {
+            content = m_item->bakedPrompt();
+        }
+        else {
+            content = m_item->content();
+        }
+        obj.emplace("content", content.toStdString());
+    }
+    if (m_item->type() == MessageItem::Type::Prompt) {
+        {
+            json::array_t sources;
+            for (const auto& r : m_item->sources()) {
+                sources.push_back(JinjaResultInfo(r).AsJson());
+            }
+            obj.emplace("sources", std::move(sources));
+        }
+        {
+            json::array_t attachments;
+            for (const auto& pa : m_item->promptAttachments()) {
+                attachments.push_back(JinjaPromptAttachment(pa).AsJson());
+            }
+            obj.emplace("prompt_attachments", std::move(attachments));
+        }
+    }
+    return obj;
+}
+#endif

@@ -344,6 +344,7 @@ void ModelInfo::setRepeatPenaltyTokens(int t)
     m_repeatPenaltyTokens = t;
 }
 
+#if _MSVC_LANG > 202110L
 QVariant ModelInfo::defaultChatTemplate() const
 {
     auto res = m_chatTemplate.or_else([this]() -> std::optional<QString> {
@@ -379,6 +380,48 @@ QVariant ModelInfo::defaultChatTemplate() const
         return std::move(*res);
     return QVariant::fromValue(nullptr);
 }
+#else
+QVariant ModelInfo::defaultChatTemplate() const
+{
+    if (m_chatTemplate.has_value()) {
+        return *m_chatTemplate;
+    }
+
+    if (!installed || isOnline) {
+        return QVariant::fromValue(nullptr);
+    }
+
+    if (!m_modelChatTemplate) {
+        auto path = (dirpath + filename()).toUtf8();
+        auto res = LLModel::Implementation::chatTemplate(path.constData());
+
+        if (!res.second.empty()) {
+            std::string ggufTmpl = std::move(res.second);
+            if (ggufTmpl.size() >= 2 && ggufTmpl.end()[-2] != '\n' && ggufTmpl.end()[-1] == '\n')
+                ggufTmpl.erase(ggufTmpl.end() - 1); // strip trailing newline for e.g. Llama-3.2-3B-Instruct
+
+            if (auto replacement = CHAT_TEMPLATE_SUBSTITUTIONS.find(ggufTmpl);
+                replacement != CHAT_TEMPLATE_SUBSTITUTIONS.end()) {
+                qWarning() << "automatically substituting chat template for" << filename();
+                auto& [badTemplate, goodTemplate] = *replacement;
+                ggufTmpl = goodTemplate;
+            }
+
+            m_modelChatTemplate = QString::fromStdString(ggufTmpl);
+        }
+        else {
+            qWarning().nospace() << "failed to get chat template for " << filename() << ": " << res.second.c_str();
+            m_modelChatTemplate = QString(); // do not retry
+        }
+    }
+
+    if (m_modelChatTemplate->isNull()) {
+        return QVariant::fromValue(nullptr);
+    }
+
+    return *m_modelChatTemplate;
+}
+#endif
 
 auto ModelInfo::chatTemplate() const -> UpgradeableSetting
 {

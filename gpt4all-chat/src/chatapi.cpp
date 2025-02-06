@@ -20,7 +20,9 @@
 #include <QtGlobal>
 #include <QtLogging>
 
+#if _MSVC_LANG > 202110L
 #include <expected>
+#endif
 #include <functional>
 #include <iostream>
 #include <utility>
@@ -72,6 +74,7 @@ bool ChatAPI::isModelLoaded() const
     return true;
 }
 
+#if _MSVC_LANG > 202110L
 static auto parsePrompt(QXmlStreamReader &xml) -> std::expected<QJsonArray, QString>
 {
     QJsonArray messages;
@@ -146,6 +149,83 @@ static auto parsePrompt(QXmlStreamReader &xml) -> std::expected<QJsonArray, QStr
         xml.readNext();
     }
 }
+#else
+static auto parsePrompt(QXmlStreamReader& xml) -> std::pair<QJsonArray, QString>
+{
+    QJsonArray messages;
+
+    auto xmlError = [&xml] {
+        return std::make_pair(QJsonArray(), u"%1:%2: %3"_s.arg(xml.lineNumber()).arg(xml.columnNumber()).arg(xml.errorString()));
+    };
+
+    if (xml.hasError())
+        return xmlError();
+    if (xml.atEnd())
+        return std::make_pair(messages, QString());
+
+    // skip header
+    bool foundElement = false;
+    do {
+        switch (xml.readNext()) {
+            using enum QXmlStreamReader::TokenType;
+        case Invalid:
+            return xmlError();
+        case EndDocument:
+            return std::make_pair(messages, QString());
+        default:
+            foundElement = true;
+        case StartDocument:
+        case Comment:
+        case DTD:
+        case ProcessingInstruction:
+            ;
+        }
+    } while (!foundElement);
+
+    // document body loop
+    bool foundRoot = false;
+    for (;;) {
+        switch (xml.tokenType()) {
+            using enum QXmlStreamReader::TokenType;
+        case StartElement:
+        {
+            auto name = xml.name();
+            if (!foundRoot) {
+                if (name != "chat"_L1)
+                    return std::make_pair(QJsonArray(), u"unexpected tag: %1"_s.arg(name));
+                foundRoot = true;
+            }
+            else {
+                if (name != "user"_L1 && name != "assistant"_L1 && name != "system"_L1)
+                    return std::make_pair(QJsonArray(), u"unknown role: %1"_s.arg(name));
+                auto content = xml.readElementText();
+                if (xml.tokenType() != EndElement)
+                    return xmlError();
+                messages << makeJsonObject({
+                    { "role"_L1,    name.toString().trimmed() },
+                    { "content"_L1, content                   },
+                    });
+            }
+            break;
+        }
+        case Characters:
+            if (!xml.isWhitespace())
+                return std::make_pair(QJsonArray(), u"unexpected text: %1"_s.arg(xml.text()));
+        case Comment:
+        case ProcessingInstruction:
+        case EndElement:
+            break;
+        case EndDocument:
+            return std::make_pair(messages, QString());
+        case Invalid:
+            return xmlError();
+        default:
+            return std::make_pair(QJsonArray(), u"unexpected token: %1"_s.arg(xml.tokenString()));
+        }
+        xml.readNext();
+    }
+}
+#endif
 
 void ChatAPI::prompt(
     std::string_view        prompt,
@@ -172,6 +252,7 @@ void ChatAPI::prompt(
         { "top_p"_L1,       promptCtx.top_p },
     });
 
+#if _MSVC_LANG > 202110L
     // conversation history
     {
         QUtf8StringView promptUtf8(prompt);
@@ -184,6 +265,21 @@ void ChatAPI::prompt(
         }
         root.insert("messages"_L1, *messages);
     }
+#else
+    {
+        QUtf8StringView promptUtf8(prompt);
+        QXmlStreamReader xml(promptUtf8);
+        auto [messages, error] = parsePrompt(xml);
+
+        if (!error.isEmpty()) {
+            auto error_message = fmt::format("Failed to parse API model prompt: {}", error.toStdString());
+            qDebug().noquote() << "ChatAPI ERROR:" << error << "Prompt:\n\n" << promptUtf8 << '\n';
+            throw std::invalid_argument(error_message);
+        }
+
+        root.insert("messages"_L1, messages);
+    }
+#endif
 
     QJsonDocument doc(root);
 

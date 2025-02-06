@@ -5,7 +5,9 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#if _MSVC_LANG > 202110L
 #include <expected>
+#endif
 #include <functional>
 #include <optional>
 #include <span>
@@ -106,7 +108,11 @@ public:
         static int32_t maxContextLength(const std::string &modelPath);
         static int32_t layerCount(const std::string &modelPath);
         static bool isEmbeddingModel(const std::string &modelPath);
+#if _MSVC_LANG > 202110L
         static auto chatTemplate(const char *modelPath) -> std::expected<std::string, std::string>;
+#else
+        static auto chatTemplate(const char* modelPath)->std::pair<bool, std::string>;
+#endif
         static void setImplementationsSearchPath(const std::string &path);
         static const std::string &implementationsSearchPath();
         static bool hasSupportedCPU();
@@ -240,11 +246,23 @@ protected:
         return -1;
     }
 
+#if _MSVC_LANG > 202110L
     virtual auto chatTemplate(const char *modelPath) const -> std::expected<std::string, std::string>
     {
         (void)modelPath;
         return std::unexpected("not implemented");
     }
+
+#else
+    virtual auto chatTemplate(const char* modelPath) const -> std::pair<bool, std::string>
+    {
+        // 检查模型路径是否为空
+        if (!modelPath || std::string(modelPath).empty())
+        {
+            return { false, "not implemented" };
+        }
+    }
+#endif
 
     const Implementation *m_implementation = nullptr;
 

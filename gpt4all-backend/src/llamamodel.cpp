@@ -725,6 +725,7 @@ int32_t LLamaModel::layerCount(std::string const &modelPath) const
     return get_arch_key_u32(modelPath, "block_count");
 }
 
+#if _MSVC_LANG > 202110L
 // TODO(jared): reduce redundant code and operations by combining all metadata getters for unloaded
 //              models into a class that keeps the model file open
 auto LLamaModel::chatTemplate(const char *modelPath) const -> std::expected<std::string, std::string>
@@ -755,6 +756,40 @@ cleanup:
     gguf_free(ctx);
     return result;
 }
+#else
+auto LLamaModel::chatTemplate(const char* modelPath) const -> std::pair<bool, std::string>
+{
+    auto* ctx = load_gguf(modelPath);
+    if (!ctx)
+    {
+        return { false, "failed to open model file" }; // 错误时返回
+    }
+
+    std::pair<bool, std::string> result;
+    enum gguf_type ktype;
+    const int kid = gguf_find_key(ctx, "tokenizer.chat_template");
+    if (kid == -1)
+    {
+        result = { false, "key not found" }; // 错误时返回
+        goto cleanup;
+    }
+
+    ktype = gguf_get_kv_type(ctx, kid);
+    if (ktype != GGUF_TYPE_STRING)
+    {
+        result = { false,
+                  "expected key type STRING (" + std::to_string(GGUF_TYPE_STRING) + "), got " + std::to_string(ktype) };
+        goto cleanup;
+    }
+
+    result = { true, gguf_get_val_str(ctx, kid) }; // 成功时返回
+
+cleanup:
+    gguf_free(ctx);
+    return result;
+}
+
+#endif
 
 #ifdef GGML_USE_VULKAN
 static const char *getVulkanVendorName(uint32_t vendorID)
